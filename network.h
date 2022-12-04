@@ -10,7 +10,10 @@ struct sockParam {
 
 int ths (struct sockParam sock, char *buffer, int port);
 struct sockParam openDataSocket(int port);
+<<<<<<< HEAD
 void *sendFile (void *arg);
 void *receiveACK (void *arg);
+=======
+>>>>>>> 31852206e7b11f748545ca2706173a0b88d36c08
 
 #endif
