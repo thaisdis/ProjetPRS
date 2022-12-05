@@ -118,7 +118,8 @@ void *sendFile (void *arg){
    int seg_num = 1;
    int lost=0;
    int chunk_file;
-
+   int taille; 
+   
    struct sockaddr_in data_receive;
    int sending = 1;
 
@@ -159,7 +160,7 @@ void *sendFile (void *arg){
    }else{
       tot_seg = file_size / BUFFER_DATA_SIZE + 1; // si ce n'est pas un multiple de BUFFER_DATA_SIZE
    }
-    printf("[%d][INFO]The number of segments to send is %lu \n", getpid(), tot_seg);
+    printf("[%d][INFO]The number of segments to send is %d \n", getpid(), tot_seg);
 
     //Creation d'un buffer pour les données- voir les mallocs
     char data[tampon][BUFFER_DATA_SIZE]={0};
@@ -178,7 +179,7 @@ void *sendFile (void *arg){
             pthread_mutex_unlock(&lock);*/
          if(seg_num == tot_seg){ // Si c'est le dernier segment, on arrête d'envoyer des nouveaux segments
             taille =(file_size%BUFFER_DATA_SIZE);
-            printf("[%d][INFO]Sending last seg, size = %lu \n", getpid(), taille);    
+            printf("[%d][INFO]Sending last seg, size = %d\n", getpid(), taille);    
             sending =0;
          }
 
