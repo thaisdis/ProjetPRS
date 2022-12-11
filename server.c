@@ -149,10 +149,8 @@ void *sendFile (void *arg){
    socklen_t sock_size = sizeof(addr);
    char *filename= sock.filename;
   
-   //signal(SIGUSR1, sig_handler);
-
    //Ouverture du fichier
-   FILE *file = fopen(filename, "r+");
+   FILE *file = fopen(filename, "rb");
    printf("[%d][INFO]File to send : %s\n", getpid(),filename);
    if (file == NULL) {
       char err[24];
@@ -174,91 +172,99 @@ void *sendFile (void *arg){
    printf("[%d][INFO]The size of the file is %lu bytes\n", getpid(), file_size);
 
    //Calcul du nb de segments à envoyer
-  
-   if(file_size%BUFFER_DATA_SIZE==0){
+
+   if(file_size%BUFFER_DATA_SIZE == 0){
       tot_seg = file_size / BUFFER_DATA_SIZE;
    }else{
       tot_seg = file_size / BUFFER_DATA_SIZE + 1; // si ce n'est pas un multiple de BUFFER_DATA_SIZE
    }
     printf("[%d][INFO]The number of segments to send is %d \n", getpid(), tot_seg);
 
-    //Creation d'un buffer pour les données- voir les mallocs
-    char data[tampon][BUFFER_DATA_SIZE]={0};
-    char seg[BUFFER_DATA_SIZE];
+    //Creation d'un buffer pour stocker tous le contenu du fichier et y accéder plus rapidement
+   char segment[BUFFER_DATA_SIZE];
+	char *buffer[tot_seg];
+   int size_last_seg = (file_size%BUFFER_DATA_SIZE);
       
+   //En cas de questions, surtout ne pas insister, y a que comme ça que ça marche lol
+   for (int i = 0; i<tot_seg; i++){
+      buffer[i] = malloc(sizeof(char)*BUFFER_DATA_SIZE);
+   }
+   
+   for (int i = 0; i<tot_seg-1; i++){	
+		fread(segment, BUFFER_DATA_SIZE, 1, file);
+		strcpy(buffer[i], segment);
+	}
+	
+   //Gestion à part du dernier segment
+	char last_seg[size_last_seg];
+	fread(last_seg, size_last_seg, 1, file);
+   
+   fclose(file);  
   
    // changer pour ast ack well received, sinon prend pas le dernier packet
    while(tot_seg!=last_ACK_received){ // Si je n'ai pas grillé ma fenêtre et que j'ai encore de quoi envoyer, lets go
       
+      char seg[BUFFER_DATA_SIZE+6];
+      memset(seg, 0, sizeof(seg));
 
       if (flag_fastR==1){ //on perd l'interet du signal, A CHANGER!!!!
          pthread_mutex_lock(&lock_last_ACK_received);
          lost=last_ACK_received+1;
          pthread_mutex_unlock(&lock_last_ACK_received);
          printf("c cho on a perdu un paketoooo les reufs, PAQUETO PERDU:%d \n", lost);
-        
-         //for( int i=0; i<10; i++){// RENVOI
-            sprintf(seg, "%06d",lost);//06 fait automatiquement la mise en forme
-            printf("[%d][INFO]Sending lost seg %s\n", getpid(), seg);  
-            //printf("[%d][INFO]jsuis la\n");
-            //chunk_file= fread((char*)&data[(lost-1)%tampon],1,BUFFER_DATA_SIZE,file);
-            
-
-            memcpy(seg+6,(char*)&data[(lost-1)%tampon], chunk_file); //chunk file a pas la bonne taille
+         
+         sprintf(seg,"%06d",lost);
+         taille = sizeof(char)*BUFFER_DATA_SIZE;
+         memcpy(seg+6,buffer[lost-1], taille);
+         printf("[%d][INFO]Sending lost seg %s\n", getpid(), seg);  
           
-            sendto(server_sock, seg, chunk_file+6, MSG_CONFIRM, (struct sockaddr *)&addr, sock_size);
+         sendto(server_sock, seg, sizeof(seg), MSG_CONFIRM, (struct sockaddr *)&addr, sock_size);
 
-            
-            //pthread_mutex_lock(&lock_credit);
-            //credit --;
-            //pthread_mutex_unlock(&lock_credit);
-        //}
-            pthread_mutex_lock(&lock_flag);
-            flag_fastR= 0;
-        
-            pthread_mutex_unlock(&lock_flag);
+         pthread_mutex_lock(&lock_flag);
+         flag_fastR= 0;
+         pthread_mutex_unlock(&lock_flag);
         
       }
 
       while(credit&&sending>0){  
-            if(seg_num == tot_seg){ // Si c'est le dernier segment, on arrête d'envoyer des nouveaux segments
-              
-               printf("[%d][INFO]Sending last seg, size = %d\n", getpid(), file_size%BUFFER_DATA_SIZE);    
-               sending =0;
+            if(seg_num == tot_seg){ // Si c'est le dernier segment, on arrête d'envoyer des nouveaux segments + traitement spécial du dernier segment 
+               char last[size_last_seg+6];
+               memset(last, 0, sizeof(last));
+               sprintf(last,"%06d",seg_num);
+               taille = sizeof(char)*size_last_seg;
+               memcpy(last+6,last_seg, taille);
+               printf("[%d][INFO]Sending last seg, size = %s\n", getpid(), last);
+               sendto(server_sock, (const char *)last, sizeof(last), MSG_CONFIRM, (struct sockaddr *)&addr, sock_size);
+               sending=0;
             }
 
-            //nouvelle version
+         //nouvelle version
+         
          sprintf(seg,"%06d",seg_num);
-         chunk_file= fread((char*)&data[(seg_num-1)%tampon],1,BUFFER_DATA_SIZE,file); //revoir si c bien un buff circulaire
-         memcpy(seg+6,(char*)&data[(seg_num-1)%tampon], chunk_file);
+         taille = sizeof(char)*BUFFER_DATA_SIZE;
+         memcpy(seg+6,buffer[seg_num-1], taille);
         
          printf("[%d][INFO]Sending seg %d\n", getpid(), seg_num);
-         sendto(server_sock, seg, chunk_file+6, MSG_CONFIRM, (struct sockaddr *)&addr, sock_size);
+         sendto(server_sock, (const char *)seg, sizeof(seg), MSG_CONFIRM, (struct sockaddr *)&addr, sock_size);
          seg_num+=1;
          pthread_mutex_lock(&lock_credit);
          credit --;
          pthread_mutex_unlock(&lock_credit);
-         printf("credit send :%d\n", credit);      
+         //printf("credit send :%d\n", credit);      
             
       }
       
-  
-
-     //stocker le dernier packet envoyé avant le ack
-    
-      
    }
-   //printf("i am here\n");
-
-   //nanosleep((const struct timespec[]){0,100000000L}, NULL);//force sleep fpr 100ms problemo à regler, le bail join trop tot pas le temps pr les ack  
-   fclose(file);
-   printf("exiting process\n");
+   char *fin = "FIN";//on annonce au client la fin de la transmission
+   sendto(sock.sock, (const char *)fin, sizeof(fin), MSG_CONFIRM, (struct sockaddr *)&sock.addr, sock_size);
+   //clock_gettime(CLOCK_MONOTONIC_RAW, &end);
+   printf("[%d][INFO] Transmission terminée\n", getpid());
+   
+   free(buffer);
+   
    return NULL;
 
 }
-
-
-
 
 
 void *receiveACK(void *arg){
@@ -442,7 +448,7 @@ int main(int argc, char* argv[]) {
 
                // paramètres pour lancement des threads
               
-               sockclient.filename= buffer;
+               sockclient.filename=buffer;
               
                // // mieux comprendre ce que ça fait la
               
@@ -452,18 +458,14 @@ int main(int argc, char* argv[]) {
                pthread_join(t_sendFile, NULL);
                pthread_join(t_receiveACK, NULL);
               
-
-
                pthread_mutex_destroy(&lock_credit );
                pthread_mutex_destroy(&lock_flag );
                pthread_mutex_destroy(&lock_last_ACK_received );
 
-               char *fin = "FIN";//on annonce au client la fin de la transmission
-               sendto(sockclient.sock, (const char *)fin, sizeof(fin), MSG_CONFIRM, (struct sockaddr *)&sockclient.addr,sizeof(sockclient.addr) );
-               printf("[%d][INFO]Envoi terminé\n", getpid());
                memset(buffer, 0, sizeof(&buffer));
                close(sockclient.sock);
             }
+            
             exit(process);
             return(EXIT_SUCCESS);//on ferme le processus fils
          }
