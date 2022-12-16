@@ -142,12 +142,13 @@ int main(int argc, char* argv[]) {
                struct timespec start, end; //pour la mesure du temps
                int filesize;
                clock_gettime(CLOCK_MONOTONIC_RAW, &start);// timer for debug
+
                //init des threads
                pthread_mutexattr_init(&attr);
                pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
                pthread_mutex_init(&lock_last_ACK_received, &attr);
                
-               // // mieux comprendre ce que ça fait la
+               
                pthread_create(&t_sendFile, NULL,sendFile, &sockclient);
                pthread_create(&t_receiveACK, NULL,receiveACK, &sockclient);
               
@@ -157,7 +158,7 @@ int main(int argc, char* argv[]) {
                pthread_mutex_destroy(&lock_credit );
                pthread_mutex_destroy(&lock_flagR);
                pthread_mutex_destroy(&lock_flagTO);
-               //pthread_mutex_destroy(&lock_last_ACK_received );
+               pthread_mutex_destroy(&lock_last_ACK_received );
 
                memset(clientBuffer, 0, sizeof(&clientBuffer));
                close(sockclient.sock);
